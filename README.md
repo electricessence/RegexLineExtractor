@@ -16,7 +16,13 @@ Optimizes for concurrency by using `System.Threading.Channels`.
 dotnet run pattern-file.regex source-file.txt destination-file.txt
 ```
 
+```powershell
+dotnet run pattern-file.regex source-file.txt destination-file.txt skipped-file.txt
+```
+
 If the pattern file contains a named match called `output`, only that group will end up in the destination file.
+
+If a skipped file name (4th argument) is provided, then it will also write any lines _**not** matched_ to that file.
 
 ### Example
 

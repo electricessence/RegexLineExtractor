@@ -11,39 +11,50 @@ namespace RegexLineExtractor
 {
     class Program
     {
+        const string OutputGroupName = "output";
+
         static async Task Main(string[] args)
         {
             // argument 0: pattern
             var pattern = await File.ReadAllTextAsync(args[0]);
             var regex = new Regex(pattern, RegexOptions.Compiled);
-            const string outputGroup = "output";
-            var hasOutput = regex.GetGroupNames().Contains(outputGroup);
+            var hasOutput = regex.GetGroupNames().Contains(OutputGroupName);
             Console.WriteLine(pattern);
 
-            var sw = Stopwatch.StartNew();
-            using (var outputStream = File.OpenWrite(args[2])) // argument 2: destination
-            using (var output = new StreamWriter(outputStream))
-            using (var inputStream = File.OpenRead(args[1])) // argument 1: source
-            using (var input = new StreamReader(inputStream))
-            {
-                var inputChannel = Channel.CreateBounded<(string line, long remaining)>(100);
-                var inputReceiver = inputChannel.Writer;
-                var matchedChannel = Channel.CreateBounded<string>(100);
-                var matchReceiver = matchedChannel.Writer;
+            var skipped = args.Length == 4 ? new StreamWriter(args[3]) : null;
+            var skippedChannel = Channel.CreateBounded<string>(100);
+            var skippedReceiver = skippedChannel.Writer;
+            ValueTask Skip(string line)
+                => skipped == null || skippedReceiver.TryWrite(line)
+                ? new ValueTask() : skippedReceiver.WriteAsync(line);
 
-                // Match concurrently.
-                var writeMatches = inputChannel
-                    .ReadAllConcurrentlyAsync(4, async e =>
-                    {
-                        var (line, remaining) = e;
-                        var m = regex.Match(line);
-                        if (m.Success)
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                using (var destinationFile = File.OpenWrite(args[2])) // argument 2: destination
+                using (var destination = new StreamWriter(args[2]))
+                using (var sourceFile = File.OpenRead(args[1])) // argument 1: source
+                using (var source = new StreamReader(sourceFile))
+                {
+                    var inputChannel = Channel.CreateBounded<(string line, long remaining)>(100);
+                    var inputReceiver = inputChannel.Writer;
+                    var matchedChannel = Channel.CreateBounded<string>(100);
+                    var matchReceiver = matchedChannel.Writer;
+
+                    // Match concurrently.
+                    var writeMatches = inputChannel
+                        .ReadAllConcurrentlyAsync(4, async e =>
                         {
+                            var (line, remaining) = e;
+                            var m = regex.Match(line);
+                            if (!m.Success)
+                                goto skip;
+
                             if (hasOutput)
                             {
-                                var o = m.Groups["output"];
+                                var o = m.Groups[OutputGroupName];
                                 if (!o.Success)
-                                    return;
+                                    goto skip;
 
                                 line = o.Value;
                             }
@@ -59,40 +70,59 @@ namespace RegexLineExtractor
                                 if (!matchReceiver.TryWrite(line))
                                     await matchReceiver.WriteAsync(line);
                             }
-                        }
-                    });
+                            return;
 
-                // Write at a time (thread safe).
-                var writeOutput = matchedChannel
-                    .ReadAllAsync(async e => await output.WriteLineAsync(e));
-                {
-                    string line;
-                    var lineCount = 0;
-                    var length = inputStream.Length;
-                    var next = input.ReadLineAsync();
-                    while ((line = await next) != null)
+                        skip:
+                            var s = Skip(line);
+                            if (!s.IsCompletedSuccessfully)
+                                await s;
+                        });
+
+                    // Write at a time (thread safe).
+                    var writeOutput = matchedChannel
+                        .ReadAllAsync(async e => await destination.WriteLineAsync(e));
                     {
-                        // Prefetch the next line.
-                        next = input.ReadLineAsync();
-                        length -= line.Length + 2;
-                        lineCount++;
-                        var rem = lineCount % 1000 == 0 ? length : -1; // Output a console message every 1000 bytes.
-                        if (!inputReceiver.TryWrite((line, rem)))
-                            await inputReceiver.WriteAsync((line, rem));
+                        string line;
+                        var lineCount = 0;
+                        var length = sourceFile.Length;
+                        var next = source.ReadLineAsync();
+                        while ((line = await next) != null)
+                        {
+                            // Prefetch the next line.
+                            next = source.ReadLineAsync();
+                            length -= line.Length + 2;
+                            lineCount++;
+                            var rem = lineCount % 1000 == 0 ? length : -1; // Output a console message every 1000 bytes.
+                            if (!inputReceiver.TryWrite((line, rem)))
+                                await inputReceiver.WriteAsync((line, rem));
+                        }
                     }
+
+                    inputChannel.Writer.Complete();
+                    Console.WriteLine("Read Complete.");
+                    await writeMatches;
+
+                    matchedChannel.Writer.Complete();
+                    Console.WriteLine("Matches Found.");
+                    await writeOutput;
+
+                    Console.WriteLine("Done: {0} seconds", sw.Elapsed.TotalSeconds);
+
+                    await destinationFile.FlushAsync();
                 }
+            }
+            finally
+            {
+                skippedChannel.Writer.Complete();
+                await skippedChannel.Reader.Completion;
 
-                inputChannel.Writer.Complete();
-                Console.WriteLine("Read Complete.");
-                await writeMatches;
+                if (skipped != null)
+                {
+                    await skipped.FlushAsync();
+                    skipped.Dispose();
 
-                matchedChannel.Writer.Complete();
-                Console.WriteLine("Matches Found.");
-                await writeOutput;
-
-                Console.WriteLine("Done: {0} seconds", sw.Elapsed.TotalSeconds);
-
-                await outputStream.FlushAsync();
+                    Console.WriteLine("{0} created.", args[3]);
+                }
             }
         }
     }
