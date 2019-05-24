@@ -33,8 +33,7 @@ namespace RegexLineExtractor
             try
             {
                 var sw = Stopwatch.StartNew();
-                using (var destinationFile = File.OpenWrite(args[2])) // argument 2: destination
-                using (var destination = new StreamWriter(destinationFile))
+                using (var destination = new StreamWriter(args[2])) // argument 2: destination
                 using (var sourceFile = File.OpenRead(args[1])) // argument 1: source
                 using (var source = new StreamReader(sourceFile))
                 {
@@ -111,7 +110,7 @@ namespace RegexLineExtractor
 
                     Console.WriteLine("Done: {0} seconds", sw.Elapsed.TotalSeconds);
 
-                    await destinationFile.FlushAsync();
+                    await destination.FlushAsync();
                 }
             }
             finally
