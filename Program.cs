@@ -27,6 +27,8 @@ namespace RegexLineExtractor
             ValueTask Skip(string line)
                 => skipped == null || skippedReceiver.TryWrite(line)
                 ? new ValueTask() : skippedReceiver.WriteAsync(line);
+            var writeSkipped = skipped==null ? new ValueTask() : skippedChannel
+                .ReadAllAsync(async e => await skipped.WriteLineAsync(e));
 
             try
             {
@@ -81,6 +83,7 @@ namespace RegexLineExtractor
                     // Write at a time (thread safe).
                     var writeOutput = matchedChannel
                         .ReadAllAsync(async e => await destination.WriteLineAsync(e));
+
                     {
                         string line;
                         var lineCount = 0;
@@ -114,7 +117,7 @@ namespace RegexLineExtractor
             finally
             {
                 skippedChannel.Writer.Complete();
-                await skippedChannel.Reader.Completion;
+                await writeSkipped;
 
                 if (skipped != null)
                 {
