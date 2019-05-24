@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -19,6 +20,7 @@ namespace RegexLineExtractor
             var hasOutput = regex.GetGroupNames().Contains(outputGroup);
             Console.WriteLine(pattern);
 
+            var sw = Stopwatch.StartNew();
             using (var outputStream = File.OpenWrite(args[2])) // argument 2: destination
             using (var output = new StreamWriter(outputStream))
             using (var inputStream = File.OpenRead(args[1])) // argument 1: source
@@ -88,7 +90,7 @@ namespace RegexLineExtractor
                 Console.WriteLine("Matches Found.");
                 await writeOutput;
 
-                Console.WriteLine("Done.");
+                Console.WriteLine("Done: {0} seconds", sw.Elapsed.TotalSeconds);
 
                 await outputStream.FlushAsync();
             }
