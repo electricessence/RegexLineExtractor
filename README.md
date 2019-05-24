@@ -12,10 +12,16 @@ Optimizes for concurrency by using `System.Threading.Channels`.
 
 ## Usage
 
-If the pattern contains a named match called `output`, only that group will end up in the destination file.
-
-### Example
-
 ```powershell
 dotnet run pattern-file.regex source-file.txt destination-file.txt
 ```
+
+If the pattern file contains a named match called `output`, only that group will end up in the destination file.
+
+### Example
+
+```regexp
+start(?<output>.+)end
+```
+
+Using the above pattern, only the portion in-between `start` and `end` will be written to the destination file.
