@@ -61,14 +61,14 @@ namespace RegexLineExtractor
                             end:
                             var count = Interlocked.Increment(ref lineCount);
                             if (count % 1000 == 0)
-                                lock (sw) Console.WriteLine("Lines Processed: {0:N}", count);
+                                lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
                         });
 
                     sw.Stop();
                 }
 
-                Console.WriteLine("Done: {0} seconds", sw.Elapsed.TotalSeconds);
-                Console.WriteLine("{0:N} matches Found.", matchCount);
+                Console.WriteLine("Done: {0:N3} seconds", sw.Elapsed.TotalSeconds);
+                Console.WriteLine("{0:N0} matches Found.", matchCount);
 
                 await destination.CompleteAsync();
                 await skipped.CompleteAsync();

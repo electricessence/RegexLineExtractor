@@ -8,10 +8,12 @@ namespace RegexLineExtractor
 {
     public class AsyncLineWriter : IDisposable
     {
+        readonly Channel<string> _channel;
+
         /// <summary>
         /// Constructs an AsyncTextWriter.
         /// </summary>
-        /// <param name="fileName">An optional file name.  If the name is null, then this will act as a dummy.</param>
+        /// <param name="fileName">An optional file name.  If the name is null, then this will act as a dummy writer.</param>
         public AsyncLineWriter(string fileName = null)
         {            
             if (fileName == null)
@@ -38,8 +40,6 @@ namespace RegexLineExtractor
             }
         }
 
-        readonly Channel<string> _channel;
-
         public ValueTask WriteAsync(string line)
             => _channel == null || _channel.Writer.TryWrite(line)
                 ? new ValueTask()
@@ -53,9 +53,10 @@ namespace RegexLineExtractor
             return Completion;
         }
 
+        public ValueTask DisposeAsync()
+            => new ValueTask(CompleteAsync());
+
         public void Dispose()
-        {
-            CompleteAsync().Wait();
-        }
+            => CompleteAsync().Wait();
     }
 }
