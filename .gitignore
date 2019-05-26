@@ -331,3 +331,4 @@ ASALocalRun/
 
 *.txt
 *.regex
+results/*

@@ -12,66 +12,96 @@ namespace RegexLineExtractor
     class Program
     {
         const string OutputGroupName = "output";
+        const string ResultsDirectoryName = "results";
 
         static async Task Main(string[] args)
         {
-            // argument 0: pattern
-            var pattern = await File.ReadAllTextAsync(args[0]);
-            var regex = new Regex(pattern, RegexOptions.Compiled);
-            var hasOutput = regex.GetGroupNames().Contains(OutputGroupName);
-            Console.WriteLine(pattern);
-          
-            var sw = Stopwatch.StartNew();
-            using (var skipped = new AsyncLineWriter(args.Length == 4 ? args[3] : null))
-            using (var destination = new AsyncLineWriter(args[2])) // argument 2: destination
-            {
-                var matchCount = 0;
-                using (var source = new StreamReader(args[1])) // argument 1: source
+            // argument 1: patterns
+            var patternsFileName = args.ElementAtOrDefault(1) ?? "patterns.regex";
+            var patterns = File
+                .ReadLines(patternsFileName)
+                .Select((p, i) =>
                 {
-                    var lineCount = 0;
-                    await source
-                        .ToChannel(100)
-                        .ReadAllConcurrentlyAsync(4, async line =>
-                        {
-                            var m = regex.Match(line);
-                            if (!m.Success)
-                                goto skip;
+                    var regex = new Regex(p, RegexOptions.Compiled);
+                    return (
+                        pattern: regex,
+                        hasOutput: regex.GetGroupNames().Contains(OutputGroupName),
+                        writer: new AsyncLineWriter($"results/pattern-{i + 1}.lines.txt")
+                    );
+                })
+                .ToArray();
 
-                            if (hasOutput)
+            // Make sure we can dump our results.
+            if (!Directory.Exists(ResultsDirectoryName))
+                Directory.CreateDirectory(ResultsDirectoryName);
+
+            // Clean any previous runs.
+            foreach(var file in Directory.GetFiles(ResultsDirectoryName))
+                File.Delete(file);               
+
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                using (var notMatched = new AsyncLineWriter($"results/not-matched.lines.txt"))
+                {
+                    var matchCount = 0;
+                    using (var source = new StreamReader(args[0])) // argument 0: source
+                    {
+                        var lineCount = 0;
+                        await source
+                            .ToChannel(100)
+                            .ReadAllConcurrentlyAsync(4, async line =>
                             {
-                                var o = m.Groups[OutputGroupName];
-                                if (!o.Success)
-                                    goto skip;
+                                var found = false;
+                                foreach (var (pattern, hasOutput, writer) in patterns)
+                                {
+                                    var m = pattern.Match(line);
+                                    if (!m.Success)
+                                        continue;
 
-                                line = o.Value;
-                            }
+                                    if (hasOutput)
+                                    {
+                                        var o = m.Groups[OutputGroupName];
+                                        if (!o.Success)
+                                            continue;
 
-                            var ok = destination.WriteAsync(line);
-                            if (!ok.IsCompletedSuccessfully)
-                                await ok;
+                                        line = o.Value;
+                                    }
 
-                            Interlocked.Increment(ref matchCount);
-                            goto end;
+                                    var ok = writer.WriteAsync(line);
+                                    if (!ok.IsCompletedSuccessfully)
+                                        await ok;
 
-                        skip:
-                            var s = skipped.WriteAsync(line);
-                            if (!s.IsCompletedSuccessfully)
-                                await s;
+                                    Interlocked.Increment(ref matchCount);
+                                    found = true;
+                                }
 
-                            end:
-                            var count = Interlocked.Increment(ref lineCount);
-                            if (count % 1000 == 0)
-                                lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
-                        });
+                                if (!found)
+                                {
+                                    var s = notMatched.WriteAsync(line);
+                                    if (!s.IsCompletedSuccessfully)
+                                        await s;
+                                }
 
-                    sw.Stop();
+                                var count = Interlocked.Increment(ref lineCount);
+                                if (count % 1000 == 0)
+                                    lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
+                            });
+
+                        sw.Stop();
+                    }
+
+                    Console.WriteLine("Done: {0:N3} seconds", sw.Elapsed.TotalSeconds);
+                    Console.WriteLine("{0:N0} matches Found.", matchCount);
+
+                    await Task.WhenAll(patterns.Select(p => p.writer.CompleteAsync()));
+                    await notMatched.CompleteAsync();
                 }
-
-                Console.WriteLine("Done: {0:N3} seconds", sw.Elapsed.TotalSeconds);
-                Console.WriteLine("{0:N0} matches Found.", matchCount);
-
-                await destination.CompleteAsync();
-                await skipped.CompleteAsync();
+            }
+            finally
+            {
+                foreach (var (pattern, hasOutput, writer) in patterns)
+                    await writer.DisposeAsync();
             }
         }
     }

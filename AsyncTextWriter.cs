@@ -15,7 +15,7 @@ namespace RegexLineExtractor
         /// </summary>
         /// <param name="fileName">An optional file name.  If the name is null, then this will act as a dummy writer.</param>
         public AsyncLineWriter(string fileName = null)
-        {            
+        {
             if (fileName == null)
             {
                 Completion = Task.CompletedTask;
@@ -34,7 +34,13 @@ namespace RegexLineExtractor
                 Completion = _channel
                     .ReadAllAsync(line => new ValueTask(file.Value.WriteLineAsync(line)))
                     .AsTask()
-                    .ContinueWith(t => {
+                    .ContinueWith(t =>
+                    {
+                        if (t.IsFaulted)
+                        {
+                            _channel.Writer.TryComplete(t.Exception);
+                        }
+
                         if (file.IsValueCreated)
                         {
                             file.Value

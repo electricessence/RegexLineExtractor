@@ -1,33 +1,40 @@
 # RegexLineExtractor
 
-Reads all lines from a source file and for every line that matches the provided pattern, writes that match to a destination file.
+Reads all lines from a source file and for every line that matches the provided pattern(s), writes that match to a destination file to a `results` directory.
 
 Optimizes for concurrency by using `System.Threading.Channels`.
 
 ## Setup
 
 1) Clone the repository locally.
-2) Create any file that contains the .NET supported regular expression pattern you'd like to use for each line.
+2) Create a pattern file that contains the .NET supported regular expression patterns you'd like to use for each line.
 3) Provide a source text file to read from.
 
 ## Usage
 
 ```powershell
-dotnet run pattern-file.regex source-file.txt destination-file.txt
+dotnet run source-file.txt patterns.regex
 ```
 
-```powershell
-dotnet run pattern-file.regex source-file.txt destination-file.txt skipped-file.txt
-```
+> `patterns.regex` is optional and will default to the above if omitted.
 
-If the pattern file contains a named match called `output`, only that group will end up in the destination file.
+### Pattern Files
 
-If a skipped file name (4th argument) is provided, then it will also write any lines _**not** matched_ to that file.
+A "pattern" file should contain a regular expression for each line.
 
-### Example
+#### Example
 
 ```regexp
-start(?<output>.+)end
+^\.+ end of line.
+^Result: (?<output>\.+)
 ```
 
-Using the above pattern, only the portion in-between `start` and `end` will be written to the destination file.
+The above pattern file will:
+
+1) For each line that ends in " end of line." and write them to `results/pattern-1.lines.txt`.
+
+2) If the first pattern is not a match, does it start with "Result: " and if so write the `output`\* group to `results/pattern-2.lines.txt`.
+
+3) If no more patterns to match against then write the line to `results/not-matched.lines.txt`.
+
+> \* If a pattern contains a named match called `output`, only that group will end up in the destination file.
