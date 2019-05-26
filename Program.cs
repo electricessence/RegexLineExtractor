@@ -20,7 +20,7 @@ namespace RegexLineExtractor
             var regex = new Regex(pattern, RegexOptions.Compiled);
             var hasOutput = regex.GetGroupNames().Contains(OutputGroupName);
             Console.WriteLine(pattern);
-
+          
             var sw = Stopwatch.StartNew();
             using (var skipped = new AsyncLineWriter(args.Length == 4 ? args[3] : null))
             using (var destination = new AsyncLineWriter(args[2])) // argument 2: destination

@@ -24,26 +24,32 @@ namespace RegexLineExtractor
             {
                 var file = new Lazy<StreamWriter>(() => new StreamWriter(fileName));
 
-                _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(100)
+                _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(1)
                 {
                     SingleReader = true,
+                    SingleWriter = false,
+                    AllowSynchronousContinuations = true
                 });
 
                 Completion = _channel
                     .ReadAllAsync(line => new ValueTask(file.Value.WriteLineAsync(line)))
                     .AsTask()
-                    .ContinueWith(t => file.IsValueCreated
-                        ? file.Value
-                            .FlushAsync() // Async flush, then sync dispose.
-                            .ContinueWith(f => file.Value.Dispose())
-                        : Task.CompletedTask);
+                    .ContinueWith(t => {
+                        if (file.IsValueCreated)
+                        {
+                            file.Value
+                                .FlushAsync() // Async flush, then sync dispose.
+                                .ContinueWith(f => file.Value.Dispose());
+                        }
+                        return t;
+                    })
+                    .Unwrap();
             }
         }
 
         public ValueTask WriteAsync(string line)
-            => _channel == null || _channel.Writer.TryWrite(line)
-                ? new ValueTask()
-                : _channel.Writer.WriteAsync(line);
+            => _channel == null ? new ValueTask()
+                : _channel.Writer.WriteIfOpenAsync(line);
 
         public Task Completion { get; }
 
