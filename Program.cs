@@ -49,7 +49,7 @@ namespace RegexLineExtractor
                     {
                         var lineCount = 0;
                         await source
-                            .ToChannel(100)
+                            .ToChannel(1000)
                             .ReadAllConcurrentlyAsync(4, async line =>
                             {
                                 var found = false;

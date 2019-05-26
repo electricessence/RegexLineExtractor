@@ -24,7 +24,7 @@ namespace RegexLineExtractor
             {
                 var file = new Lazy<StreamWriter>(() => new StreamWriter(fileName));
 
-                _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(1)
+                _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(100)
                 {
                     SingleReader = true,
                     SingleWriter = false,
