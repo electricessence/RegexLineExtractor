@@ -79,7 +79,7 @@ namespace RegexLineExtractor
 									await notMatched.WriteAsync(line);
   
 								var count = Interlocked.Increment(ref lineCount);
-								if (count % 1000 == 0)
+								if (count % 10000 == 0)
 									lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
 							});
 
