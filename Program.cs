@@ -53,22 +53,33 @@ namespace RegexLineExtractor
 							.ReadAllConcurrentlyAsync(4, async line =>
 							{
 								var found = false;
+								var result = ReadOnlyMemory<char>.Empty;
 								foreach (var (pattern, hasOutput, writer) in patterns)
 								{
-									var m = pattern.Match(line);
-									if (!m.Success)
-										continue;
-
 									if (hasOutput)
 									{
+										var m = pattern.Match(line);
+										if (!m.Success)
+											continue;
+
 										var o = m.Groups[OutputGroupName];
 										if (!o.Success)
 											continue;
 
+										result = line.AsMemory().Slice(o.Index, o.Length);
+
 										line = o.Value;
 									}
+									else if(pattern.IsMatch(line))
+									{
+										result = line.AsMemory();
+									}
+									else
+									{
+										continue;
+									}
 
-									await writer.WriteAsync(line);
+									await writer.WriteAsync(result);
 
 									Interlocked.Increment(ref matchCount);
 									found = true;
@@ -76,7 +87,7 @@ namespace RegexLineExtractor
 								}
 
 								if (!found)
-									await notMatched.WriteAsync(line);
+									await notMatched.WriteAsync(result);
   
 								var count = Interlocked.Increment(ref lineCount);
 								if (count % 10000 == 0)

@@ -9,7 +9,7 @@ namespace RegexLineExtractor
 {
 	public class AsyncLineWriter : IDisposable
 	{
-		readonly Channel<string> _channel;
+		readonly Channel<ReadOnlyMemory<char>> _channel;
 
 		/// <summary>
 		/// Constructs an AsyncTextWriter.
@@ -25,7 +25,7 @@ namespace RegexLineExtractor
 			{
 				var file = new Lazy<StreamWriter>(() => new StreamWriter(fileName));
 
-				_channel = Channel.CreateBounded<string>(new BoundedChannelOptions(100)
+				_channel = Channel.CreateBounded<ReadOnlyMemory<char>>(new BoundedChannelOptions(100)
 				{
 					SingleReader = true,
 					SingleWriter = false,
@@ -49,10 +49,10 @@ namespace RegexLineExtractor
 						return file
 							.Value
 							.FlushAsync() // Async flush, then sync dispose.
-							.ContinueWith(
+							.ContinueWith(async
 								f =>
 								{
-									file.Value.Dispose();
+									await file.Value.DisposeAsync();
 									return t;
 								},
 								TaskContinuationOptions.ExecuteSynchronously)
@@ -63,7 +63,7 @@ namespace RegexLineExtractor
 			}
 		}
 
-		public ValueTask WriteAsync(string line, CancellationToken cancellationToken = default)
+		public ValueTask WriteAsync(ReadOnlyMemory<char> line, CancellationToken cancellationToken = default)
 			=> _channel == null || _channel.Writer.TryWrite(line)
 				? new ValueTask()
 				: _channel.Writer.WriteAsync(line, cancellationToken);
