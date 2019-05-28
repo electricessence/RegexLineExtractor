@@ -49,10 +49,10 @@ namespace RegexLineExtractor
 						return file
 							.Value
 							.FlushAsync() // Async flush, then sync dispose.
-							.ContinueWith(async
+							.ContinueWith(
 								f =>
 								{
-									await file.Value.DisposeAsync();
+									file.Value.Dispose();
 									return t;
 								},
 								TaskContinuationOptions.ExecuteSynchronously)
