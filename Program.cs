@@ -48,7 +48,7 @@ namespace RegexLineExtractor
 					using (var source = new StreamReader(args[0])) // argument 0: source
 					{
 						var lineCount = 0;
-						await source
+						var total = await source
 							.ToChannel(100)
 							.ReadAllConcurrentlyAsync(4, async line =>
 							{
@@ -92,6 +92,8 @@ namespace RegexLineExtractor
 								if (count % 10000 == 0)
 									lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
 							});
+
+						Console.WriteLine("Total Lines: {0:N0}", total);
 
 						sw.Stop();
 					}
