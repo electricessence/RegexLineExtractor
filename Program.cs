@@ -67,8 +67,6 @@ namespace RegexLineExtractor
 											continue;
 
 										result = line.AsMemory().Slice(o.Index, o.Length);
-
-										line = o.Value;
 									}
 									else if(pattern.IsMatch(line))
 									{
