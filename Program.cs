@@ -76,6 +76,7 @@ namespace RegexLineExtractor
 									}
 									else
 									{
+										result = line.AsMemory();
 										continue;
 									}
 
