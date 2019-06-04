@@ -53,7 +53,7 @@ namespace RegexLineExtractor
 							.ReadAllConcurrentlyAsync(4, async line =>
 							{
 								var found = false;
-								var result = ReadOnlyMemory<char>.Empty;
+								var result = line.AsMemory();
 								foreach (var (pattern, hasOutput, writer) in patterns)
 								{
 									if (hasOutput)
@@ -66,15 +66,10 @@ namespace RegexLineExtractor
 										if (!o.Success)
 											continue;
 
-										result = line.AsMemory().Slice(o.Index, o.Length);
+										result = result.Slice(o.Index, o.Length);
 									}
-									else if(pattern.IsMatch(line))
+									else if(!pattern.IsMatch(line))
 									{
-										result = line.AsMemory();
-									}
-									else
-									{
-										result = line.AsMemory();
 										continue;
 									}
 
