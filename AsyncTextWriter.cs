@@ -33,7 +33,7 @@ namespace RegexLineExtractor
 				});
 
 				Completion = _channel
-					.ReadAllAsync(line => file.Value.WriteLineAsync(line))
+					.TaskReadAllAsync(line => file.Value.WriteLineAsync(line))
 					.AsTask()
 					.ContinueWith(t =>
 					{
