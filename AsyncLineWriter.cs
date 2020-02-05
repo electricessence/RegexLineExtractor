@@ -9,13 +9,13 @@ namespace RegexLineExtractor
 {
 	public class AsyncLineWriter : IDisposable
 	{
-		readonly Channel<ReadOnlyMemory<char>> _channel;
+		readonly Channel<ReadOnlyMemory<char>>? _channel;
 
 		/// <summary>
 		/// Constructs an AsyncTextWriter.
 		/// </summary>
 		/// <param name="fileName">An optional file name.  If the name is null, then this will act as a dummy writer.</param>
-		public AsyncLineWriter(string fileName = null)
+		public AsyncLineWriter(string? fileName = null)
 		{
 			if (fileName == null)
 			{
