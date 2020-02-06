@@ -61,7 +61,7 @@ namespace CsvLineValidator
 					.ReadAllConcurrentlyAsync(4, async line =>
 					{
 						var count = Interlocked.Increment(ref lineCount);
-						if (count % 10000 == 0)
+						if (count % 100 == 0)
 							lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
 
 						var url = CsvUtility.GetLine(line).ElementAtOrDefault(columnIndex);
@@ -101,7 +101,7 @@ namespace CsvLineValidator
 				}));
 
 			Lazy<Task<AsyncLineWriter>> GetLineWriterForCode(HttpStatusCode code)
-				=> GetLineWriterFor(code.ToString());
+				=> GetLineWriterFor((int)code + "-" + code.ToString());
 		}
 	}
 }
