@@ -12,96 +12,93 @@ using System.Net;
 
 namespace CsvLineValidator
 {
-	class Program
-	{
-		const string ResultsDirectoryName = "results";
+    class Program
+    {
+        const string ResultsDirectoryName = "results";
 
-		// dotnet run filename.csv column urlPrefix
-		static async Task Main(string[] args)
-		{
-			var filePath = args.ElementAtOrDefault(0);
-			if(string.IsNullOrWhiteSpace(filePath)) filePath = "urls.csv"; 
-			if(!filePath.EndsWith(".csv", StringComparison.InvariantCultureIgnoreCase))
-				throw new Exception("Must be a valid .csv file name");
-			var columnName = args.ElementAtOrDefault(1);
-			if (string.IsNullOrWhiteSpace(columnName)) columnName = "0";
-			string? prefix = args.ElementAtOrDefault(2);
-			if (string.IsNullOrWhiteSpace(columnName)) prefix = null;
+        // dotnet run filename.csv column urlPrefix
+        static async Task Main(string[] args)
+        {
+            var filePath = args.ElementAtOrDefault(0);
+            if (string.IsNullOrWhiteSpace(filePath)) filePath = "urls.csv";
+            if (!filePath.EndsWith(".csv", StringComparison.InvariantCultureIgnoreCase))
+                throw new Exception("Must be a valid .csv file name");
+            var columnName = args.ElementAtOrDefault(1);
+            if (string.IsNullOrWhiteSpace(columnName)) columnName = "0";
+            string? prefix = args.ElementAtOrDefault(2);
+            if (string.IsNullOrWhiteSpace(columnName)) prefix = null;
 
-			using var source = new StreamReader(filePath); // argument 0: source
-			var firstLine = await source.ReadLineAsync();
-			if (firstLine == null) return;
+            using var source = new StreamReader(filePath); // argument 0: source
+            var firstLine = await source.ReadLineAsync();
+            if (firstLine == null) return;
 
-			if(!int.TryParse(columnName, out var columnIndex))
-			{
-				var firstLineValues = CsvUtility.GetLine(firstLine).ToArray();
-				columnIndex = Array.IndexOf(firstLineValues, columnName);
-				if(columnIndex == -1) throw new Exception("Column name not found.");
-			}
+            if (!int.TryParse(columnName, out var columnIndex))
+            {
+                var firstLineValues = CsvUtility.GetLine(firstLine).ToArray();
+                columnIndex = Array.IndexOf(firstLineValues, columnName);
+                if (columnIndex == -1) throw new Exception("Column name not found.");
+            }
 
-			// Make sure we can dump our results.
-			if (!Directory.Exists(ResultsDirectoryName))
-				Directory.CreateDirectory(ResultsDirectoryName);
+			#region Pre-Cleanup
+            // Make sure we can dump our results.
+            if (!Directory.Exists(ResultsDirectoryName))
+                Directory.CreateDirectory(ResultsDirectoryName);
 
-			// Clean any previous runs.
-			foreach (var file in Directory.GetFiles(ResultsDirectoryName))
-				File.Delete(file);
+            // Clean any previous runs.
+            foreach (var file in Directory.GetFiles(ResultsDirectoryName))
+                File.Delete(file);
+			#endregion
 
+            var writers = new ConcurrentDictionary<string, AsyncLineWriter>();
+            #region Helpers
+            AsyncLineWriter GetLineWriterFor(string name)
+                => writers.GetOrAdd(name, key => new AsyncLineWriter($"{ResultsDirectoryName}/{key}.csv", firstLine));
+            AsyncLineWriter GetLineWriterForCode(HttpStatusCode code)
+                => GetLineWriterFor((int)code + "-" + code.ToString());
+            #endregion
 
-			using var httpClient = new HttpClient();
-			var writers = new ConcurrentDictionary<string, Lazy<Task<AsyncLineWriter>>>();
-			var notMatched = GetLineWriterFor("unmatched");
+            using var httpClient = new HttpClient();
+            var lineCount = 0;
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                await source
+                    .ToChannel(100)
+                    .ReadAllConcurrentlyAsync(200, async line =>
+                    {
+                        AsyncLineWriter resultWriter;
 
-			var sw = Stopwatch.StartNew();
-			try
-			{
-				var lineCount = 0;
-				await source
-					.ToChannel(100)
-					.ReadAllConcurrentlyAsync(4, async line =>
-					{
-						var count = Interlocked.Increment(ref lineCount);
-						if (count % 100 == 0)
-							lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
+                        var url = CsvUtility.GetLine(line).ElementAtOrDefault(columnIndex);
+                        if (url == null || url.StartsWith('/') && prefix == null)
+                        {
+                            resultWriter = GetLineWriterFor("skipped");
+                        }
+                        else
+                        {
+                            if (url.StartsWith('/')) url = prefix + url;
+                            var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
+                            var code = response.StatusCode;
 
-						var url = CsvUtility.GetLine(line).ElementAtOrDefault(columnIndex);
-						if(url==null || url.StartsWith('/') && prefix==null)
-						{
-							await (await notMatched.Value).WriteAsync(line.AsMemory());
-							return;
-						}
+                            resultWriter = GetLineWriterForCode(code);
+                        }
 
-						if (url.StartsWith('/')) url = prefix + url;
-						var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
-						var code = response.StatusCode;
-						await (await GetLineWriterForCode(code).Value).WriteAsync(line.AsMemory());
-					});
+                        await resultWriter.WriteAsync(line);
 
-				Console.WriteLine("File read complete: {0:N3} seconds", sw.Elapsed.TotalSeconds);
-				
-			}
-			finally
-			{
-				foreach (var e in writers.Values)
-				{
-					if (!e.IsValueCreated) continue;
-					await (await e.Value).CompleteAsync();
-				}
-			}
+                        var count = Interlocked.Increment(ref lineCount);
+                        if (count % 100 == 0)
+                            lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
+                    });
 
-			Console.WriteLine("Total time: {0:N3} seconds", sw.Elapsed.TotalSeconds);
+                Console.WriteLine("File read complete: {0:N3} seconds", sw.Elapsed.TotalSeconds);
+				source.Close();
+            }
+            finally
+            {
+                await Task.WhenAll(writers.Values.Select(e => e.CompleteAsync()));
+            }
 
+            Console.WriteLine("Total time: {0:N3} seconds", sw.Elapsed.TotalSeconds);
 
-			Lazy<Task<AsyncLineWriter>> GetLineWriterFor(string name)
-				=> writers.GetOrAdd(name, key => new Lazy<Task<AsyncLineWriter>>(async () =>
-				{
-					var alw = new AsyncLineWriter($"{ResultsDirectoryName}/{key}.csv");
-					await alw.WriteAsync(firstLine.AsMemory());
-					return alw;
-				}));
-
-			Lazy<Task<AsyncLineWriter>> GetLineWriterForCode(HttpStatusCode code)
-				=> GetLineWriterFor((int)code + "-" + code.ToString());
-		}
-	}
+        }
+    }
 }
