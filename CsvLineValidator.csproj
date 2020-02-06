@@ -12,7 +12,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Open.ChannelExtensions" Version="2.2.0" />
+    <PackageReference Include="Open.ChannelExtensions" Version="3.2.2" />
+    <PackageReference Include="Open.Text.CSV" Version="2.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="results\" />
   </ItemGroup>
 
 </Project>

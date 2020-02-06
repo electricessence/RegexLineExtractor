@@ -1,114 +1,107 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Http;
 using Open.ChannelExtensions;
+using Open.Text.CSV;
+using System.Net;
 
-namespace RegexLineExtractor
+namespace CsvLineValidator
 {
 	class Program
 	{
-		const string OutputGroupName = "output";
 		const string ResultsDirectoryName = "results";
 
+		// dotnet run filename.csv column urlPrefix
 		static async Task Main(string[] args)
 		{
-			// argument 1: patterns
-			var patternsFileName = args.ElementAtOrDefault(1) ?? "patterns.regex";
-			var patterns = File
-				.ReadLines(patternsFileName)
-				.Select((p, i) =>
-				{
-					var regex = new Regex(p, RegexOptions.Compiled);
-					return (
-						pattern: regex,
-						hasOutput: regex.GetGroupNames().Contains(OutputGroupName),
-						writer: new AsyncLineWriter($"results/pattern-{i + 1}.lines.txt")
-					);
-				})
-				.ToArray();
+			var filePath = args.ElementAtOrDefault(0);
+			if(string.IsNullOrWhiteSpace(filePath)) filePath = "urls.csv"; 
+			if(!filePath.EndsWith(".csv", StringComparison.InvariantCultureIgnoreCase))
+				throw new Exception("Must be a valid .csv file name");
+			var columnName = args.ElementAtOrDefault(1);
+			if (string.IsNullOrWhiteSpace(columnName)) columnName = "0";
+			string? prefix = args.ElementAtOrDefault(2);
+			if (string.IsNullOrWhiteSpace(columnName)) prefix = null;
+
+			using var source = new StreamReader(filePath); // argument 0: source
+			var firstLine = await source.ReadLineAsync();
+			if (firstLine == null) return;
+
+			if(!int.TryParse(columnName, out var columnIndex))
+			{
+				var firstLineValues = CsvUtility.GetLine(firstLine).ToArray();
+				columnIndex = Array.IndexOf(firstLineValues, columnName);
+				if(columnIndex == -1) throw new Exception("Column name not found.");
+			}
 
 			// Make sure we can dump our results.
 			if (!Directory.Exists(ResultsDirectoryName))
 				Directory.CreateDirectory(ResultsDirectoryName);
 
 			// Clean any previous runs.
-			foreach(var file in Directory.GetFiles(ResultsDirectoryName))
+			foreach (var file in Directory.GetFiles(ResultsDirectoryName))
 				File.Delete(file);
 
+
+			using var httpClient = new HttpClient();
+			var writers = new ConcurrentDictionary<string, Lazy<Task<AsyncLineWriter>>>();
+			var notMatched = GetLineWriterFor("unmatched");
+
+			var sw = Stopwatch.StartNew();
 			try
 			{
-				var sw = Stopwatch.StartNew();
-				using (var notMatched = new AsyncLineWriter($"results/not-matched.lines.txt"))
-				{
-					var matchCount = 0;
-					using (var source = new StreamReader(args[0])) // argument 0: source
+				var lineCount = 0;
+				await source
+					.ToChannel(100)
+					.ReadAllConcurrentlyAsync(4, async line =>
 					{
-						var lineCount = 0;
-						await source
-							.ToChannel(100)
-							.ReadAllConcurrentlyAsync(4, async line =>
-							{
-								var found = false;
-								var result = ReadOnlyMemory<char>.Empty;
-								foreach (var (pattern, hasOutput, writer) in patterns)
-								{
-									if (hasOutput)
-									{
-										var m = pattern.Match(line);
-										if (!m.Success)
-											continue;
+						var count = Interlocked.Increment(ref lineCount);
+						if (count % 10000 == 0)
+							lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
 
-										var o = m.Groups[OutputGroupName];
-										if (!o.Success)
-											continue;
+						var url = CsvUtility.GetLine(line).ElementAtOrDefault(columnIndex);
+						if(url==null || url.StartsWith('/') && prefix==null)
+						{
+							await (await notMatched.Value).WriteAsync(line.AsMemory());
+							return;
+						}
 
-										result = line.AsMemory().Slice(o.Index, o.Length);
+						if (url.StartsWith('/')) url = prefix + url;
+						var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
+						var code = response.StatusCode;
+						await (await GetLineWriterForCode(code).Value).WriteAsync(line.AsMemory());
+					});
 
-										line = o.Value;
-									}
-									else if(pattern.IsMatch(line))
-									{
-										result = line.AsMemory();
-									}
-									else
-									{
-										continue;
-									}
-
-									await writer.WriteAsync(result);
-
-									Interlocked.Increment(ref matchCount);
-									found = true;
-									break;
-								}
-
-								if (!found)
-									await notMatched.WriteAsync(result);
-  
-								var count = Interlocked.Increment(ref lineCount);
-								if (count % 10000 == 0)
-									lock (sw) Console.WriteLine("Lines Processed: {0:N0}", count);
-							});
-
-						sw.Stop();
-					}
-
-					Console.WriteLine("Done: {0:N3} seconds", sw.Elapsed.TotalSeconds);
-					Console.WriteLine("{0:N0} matches Found.", matchCount);
-
-					await Task.WhenAll(patterns.Select(p => p.writer.CompleteAsync()));
-					await notMatched.CompleteAsync();
-				}
+				Console.WriteLine("File read complete: {0:N3} seconds", sw.Elapsed.TotalSeconds);
+				
 			}
 			finally
 			{
-				foreach (var (pattern, hasOutput, writer) in patterns)
-					await writer.DisposeAsync();
+				foreach (var e in writers.Values)
+				{
+					if (!e.IsValueCreated) continue;
+					await (await e.Value).CompleteAsync();
+				}
 			}
+
+			Console.WriteLine("Total time: {0:N3} seconds", sw.Elapsed.TotalSeconds);
+
+
+			Lazy<Task<AsyncLineWriter>> GetLineWriterFor(string name)
+				=> writers.GetOrAdd(name, key => new Lazy<Task<AsyncLineWriter>>(async () =>
+				{
+					var alw = new AsyncLineWriter($"{ResultsDirectoryName}/{key}.csv");
+					await alw.WriteAsync(firstLine.AsMemory());
+					return alw;
+				}));
+
+			Lazy<Task<AsyncLineWriter>> GetLineWriterForCode(HttpStatusCode code)
+				=> GetLineWriterFor(code.ToString());
 		}
 	}
 }

@@ -5,9 +5,9 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
-namespace RegexLineExtractor
+namespace CsvLineValidator
 {
-	public class AsyncLineWriter : IDisposable
+	public class AsyncLineWriter : IAsyncDisposable
 	{
 		readonly Channel<ReadOnlyMemory<char>>? _channel;
 
@@ -78,8 +78,5 @@ namespace RegexLineExtractor
 
 		public ValueTask DisposeAsync()
 			=> new ValueTask(CompleteAsync());
-
-		public void Dispose()
-			=> CompleteAsync().Wait();
 	}
 }
